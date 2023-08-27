@@ -1,8 +1,10 @@
+#include "smw_01.h"
 #include "consts.h"
 #include "funcs.h"
 #include "smw_rtl.h"
 #include "variables.h"
 #include "assets/smw_assets.h"
+#include "smw_lua.h"
 
 void (*kUnk_18137[13])(uint8) = {
     &SprStatus00_EmptySlot,   &SprStatus01_Init,         &SprStatus02_Dead,
@@ -5463,6 +5465,9 @@ void SprXXX_PowerUps_01C538(uint8 k, uint8 a) {  // 01c538
     player_current_item_box = kSprXXX_PowerUps_ItemBoxSprite[v2];
     io_sound_ch3 = 11;
   }
+  //TODO Maybe make lua have the ability to prevent the next line from executing?
+  if (!lua_on_player_powerup(v2))
+    return;
   kSprXXX_PowerUps_HandlePowerUpPtrs[kSprXXX_PowerUps_GivePowerPtrIndex[v2]](k);
 }
 

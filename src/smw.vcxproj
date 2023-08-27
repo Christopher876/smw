@@ -165,6 +165,7 @@
     <ClCompile Include="config.c" />
     <ClCompile Include="glsl_shader.c" />
     <ClCompile Include="lm.c" />
+    <ClCompile Include="lua_mod.c" />
     <ClCompile Include="main.c" />
     <ClCompile Include="opengl.c" />
     <ClCompile Include="platform\win32\volume_control.c" />

@@ -1054,3 +1054,6 @@ typedef struct ExAnimationInfo {
 #define lm_timer_var (*(uint8 *)(g_ram + 0x1ffe0))
 
 extern bool g_lunar_magic;
+
+bool player_is_dead;
+int level_loader;

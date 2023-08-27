@@ -2,6 +2,7 @@
 #include "funcs.h"
 #include "smw_rtl.h"
 #include "variables.h"
+#include "smw_lua.h"
 
 void (*kProcessMinorExtendedSprites_MinorExtendedSpritesPtrs[12])(uint8 k) = {
     &ProcessMinorExtendedSprites_Return, &MExtSpr01_BrickPiece,  &MExtSpr02_SmallStar,   &MExtSpr03_EggShell,
@@ -1126,13 +1127,17 @@ void GameMode14_InLevel_Bank02() {  // 028ab1
   int8 v0;
 
   if (misc_1up_handler) {
+    //NOTE dispatch the one up handler
+    if(!timer_give1up)
+      lua_on_misc_1up();
+
     if (timer_give1up) {
       --timer_give1up;
     } else {
       if (--misc_1up_handler)
         timer_give1up = 35;
       io_sound_ch3 = 5;
-      ++player_current_life_count;
+      player_current_life_count += 5;
     }
   }
   if (timer_star_power < 8) {
@@ -8027,6 +8032,7 @@ void ClusterSpr03_BooCeiling_DrawClusterSpriteBoo(uint8 k, uint8 a) {  // 02fd48
 }
 
 void ClusterSpr01_1up(uint8 k) {  // 02fdbc
+  DEBUG_PRINT("ClusterSpr01_1up\n");
   UpdateClusterSpritePosition_Y(k);
   if (sign8(cluster_spr_table1e52[k] - 64))
     cluster_spr_table1e52[k] += 3;

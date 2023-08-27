@@ -30,6 +30,7 @@
 #endif
 
 #include "assets/smw_assets.h"
+#include "smw_lua.h"
 
 typedef struct GamepadInfo {
   uint32 modifiers;
@@ -485,10 +486,19 @@ error_reading:;
   bool has_bug_in_title = false;
   GamepadInfo *gi;
 
+  //TODO LUA
+  smw_lua_init();
+
   while (running) {
     SDL_Event event;
+    lua_update();
 
+    //TODO Send inputs to lua
     while (SDL_PollEvent(&event)) {
+      if (!(event.type == SDL_MOUSEMOTION)) {
+        lua_send_sdl_pressed_key(event.key.keysym.sym);
+      }
+
       switch (event.type) {
       case SDL_CONTROLLERDEVICEADDED:
         OpenOneGamepad(event.cdevice.which);
@@ -607,6 +617,7 @@ error_reading:;
   free(g_audiobuffer);
 
   g_renderer_funcs.Destroy();
+  lua_cleanup();
 
 #ifdef __SWITCH__
   SwitchImpl_Exit();
@@ -904,6 +915,9 @@ static const char *kAssetFileCandidates[] = {
 static void LoadAssets() {
   size_t length = 0;
   uint8 *data = NULL;
+
+  // Checks for the extracted assets file first, then if it does not find it
+  // it will try to read the rom and apply the bps patch to it.
   for (int i = 0; i < 2 && data == NULL; i++)
     data = ReadWholeFile(kAssetFileCandidates[i], &length);
 

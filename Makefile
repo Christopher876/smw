@@ -1,11 +1,12 @@
 TARGET_EXEC:=smw
 
-SRCS:=$(wildcard smb1/*.c smbll/*.c src/*.c src/snes/*.c) third_party/gl_core/gl_core_3_1.c
+SRCS:=$(wildcard smb1/*.c smbll/*.c src/*.c src/snes/*.c) third_party/gl_core/gl_core_3_1.c third_party/sds/sds.c
 OBJS:=$(SRCS:%.c=%.o)
 
 PYTHON:=/usr/bin/env python3
 CFLAGS:=$(if $(CFLAGS),$(CFLAGS),-O2 -fno-strict-aliasing -Werror )
-CFLAGS:=${CFLAGS} $(shell sdl2-config --cflags) -DSYSTEM_VOLUME_MIXER_AVAILABLE=0 -I.
+CFLAGS:=${CFLAGS} $(shell sdl2-config --cflags) -DSYSTEM_VOLUME_MIXER_AVAILABLE=0 -Wno-tautological-constant-out-of-range-compare -I/opt/homebrew/Cellar/lua/5.4.6/include/lua/ -I.
+LDFLAGS = -llua
 
 ifeq (${OS},Windows_NT)
     WINDRES:=windres
@@ -19,7 +20,11 @@ endif
 
 all: $(TARGET_EXEC) smw_assets.dat
 $(TARGET_EXEC): $(OBJS) $(RES)
-	$(CC) $^ -o $@ $(LDFLAGS) $(SDLFLAGS)
+	$(CC) $(DEBUG) $^ -o $@ $(LDFLAGS) $(SDLFLAGS)
+
+# debug: CFLAGS += -DDEBUG=1
+debug: all
+
 
 %.o : %.c
 	$(CC) -c $(CFLAGS) $< -o $@

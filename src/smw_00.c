@@ -3,6 +3,7 @@
 #include "smw_rtl.h"
 #include "variables.h"
 #include "assets/smw_assets.h"
+#include "smw_lua.h"
 
 static FuncV *const kInitAndMainLoop_GameModePtrs[42] = {
     &GameMode00_LoadNintendoPresents,
@@ -20,7 +21,7 @@ static FuncV *const kInitAndMainLoop_GameModePtrs[42] = {
     &GameMode0C_LoadOverworld,
     &GameModeXX_FadeInOrOut,
     &GameMode0E_ShowOverworld,
-    &GameModeXX_FadeInOrOut_MosaicFade,
+    &GameModeXX_FadeInOrOut_MosaicFade, //15
     &GameMode10_BufferLevelLoadMessage,
     &GameMode11_LoadSublevel_0096D5,
     &GameMode12_PrepareLevel,
@@ -1010,6 +1011,16 @@ void SetEnemyRollcallParallaxHDMA() {  // 0092ed
 }
 
 void InitAndMainLoop_ProcessGameMode() {  // 009322
+  //TODO Dispatch lua events
+  if (!player_is_dead && player_current_state == 9) {
+    player_is_dead = true;
+    lua_on_player_death();
+  } else if (player_is_dead && player_current_state != 9) {
+    DEBUG_PRINT("Player respawned\n");
+    player_is_dead = false;
+    lua_on_player_respawn();
+  }
+
   kInitAndMainLoop_GameModePtrs[misc_game_mode]();
 }
 
@@ -1166,6 +1177,7 @@ void UploadBigLayer3LettersToVRAM() {  // 00955e
 }
 
 void GameMode1D_LoadYoshisHouse() {  // 009583
+  DEBUG_PRINT("GameMode1D_LoadYoshisHouse\n");
   ++misc_currently_active_boss_end_cutscene;
   GameMode11_LoadSublevel_0096CF(1, 0x28);
   --misc_game_mode;
@@ -1181,6 +1193,7 @@ void GameMode1D_LoadYoshisHouse() {  // 009583
 }
 
 void GameMode1D_LoadYoshisHouse_GameMode1FEntry() {  // 0095ab
+  DEBUG_PRINT("GameMode1D_LoadYoshisHouse_GameMode1FEntry\n");
   ResetSpritesFunc(0);
   GameMode1D_LoadYoshisHouse_Bank0C();
   ++counter_local_frames;
@@ -1276,6 +1289,7 @@ void GameMode10_BufferLevelLoadMessage() {  // 00968e
 }
 
 void GameMode11_LoadSublevel_GameMode03Entry() {  // 0096ae
+  DEBUG_PRINT("GameMode11_LoadSublevel_GameMode03Entry\n");
   InitializeFirst8KBOfRAM();
   for (int8 i = 7; i >= 0; --i)
     misc_currently_loaded_sprite_graphics_files[(uint8)i] = -1;
@@ -1287,20 +1301,71 @@ void GameMode11_LoadSublevel_GameMode03Entry() {  // 0096ae
 }
 
 void GameMode11_LoadSublevel_0096CF(uint8 j, uint8 a) {  // 0096cf
+  DEBUG_PRINT("GameMode11_LoadSublevel_0096CF\n");
   misc_intro_level_flag = a;
   ow_players_map[0] = j;
   GameMode11_LoadSublevel_0096D5();
 }
 
-void GameMode11_LoadSublevel_0096D5() {  // 0096d5
+void GameMode11_Loadlevel(int level) {
+  DEBUG_PRINT("GameMode11_Loadlevel\n");
   DamagePlayer_DisableButtons();
   if (!counter_sublevels_entered && flag_show_player_start)
     LoadOverworldLayer1AndEvents();
   flag_disable_layer3_scroll = 0;
   pointer_current_overworld_process = 0;
   timer_wait_before_score_tally = 80;
-  if (LoadLevel())
+  if (LoadLevel(level))
     return;
+  for (uint8 i = 7; (i & 0x80) == 0; --i)
+    LOBYTE(get_PointU16(misc_layer1_pos, i)->x) = *((uint8 *)&mirror_current_layer1_xpos + i);
+  HandleSPCUploads_008134();
+  InitializeLevelRAM();
+  bool skip_it = false;
+  if (g_lunar_magic)
+    skip_it = LmHook_GameMode11_LoadSublevel();
+  else
+    camera_last_screen_horiz = 32;
+  if (!skip_it)
+    GameMode11_LoadSublevel_00A796();
+  ++flag_scroll_up_to_player;
+  HandleStandardLevelCameraScroll();
+  LoadSublevel();
+  if (misc_intro_level_flag) {
+    if (misc_intro_level_flag != 0xE9)
+      goto LABEL_14;
+    misc_music_register_backup = 19;
+  }
+  uint8 v1 = misc_music_register_backup;
+  if (misc_music_register_backup < 0x40) {
+    if (misc_nmito_use_flag == 0xC1)
+      v1 = 22;
+    io_music_ch1 = v1;
+  }
+  misc_music_register_backup = v1 & 0xBF;
+LABEL_14:
+  mirror_screen_display_register = 0;
+  misc_mosaic_direction = 0;
+  ++misc_game_mode;
+}
+
+void GameMode11_LoadSublevel_0096D5() {  // 0096d5
+  //TODO This one loads levels
+  DEBUG_PRINT("GameMode11_LoadSublevel_0096D5\n");
+  DamagePlayer_DisableButtons();
+  if (!counter_sublevels_entered && flag_show_player_start)
+    LoadOverworldLayer1AndEvents();
+  flag_disable_layer3_scroll = 0;
+  pointer_current_overworld_process = 0;
+  timer_wait_before_score_tally = 80;
+  if (LoadLevel(level_loader)) // TODO This is what does the loading
+    return;
+  
+  // Reset the level loader variable after we telport to a new level
+  if (level_loader != -1) {
+    // DEBUG_PRINT("Resetting the level loader variable\n");
+    level_loader = -1;
+  }
   for (uint8 i = 7; (i & 0x80) == 0; --i)
     LOBYTE(get_PointU16(misc_layer1_pos, i)->x) = *((uint8 *)&mirror_current_layer1_xpos + i);
   HandleSPCUploads_008134();
@@ -1379,6 +1444,7 @@ void GameMode17_ShowDeathMessage() {  // 009759
 }
 
 void GameMode12_PrepareLevel_PrepareMode7Level() {  // 0097bc
+  DEBUG_PRINT("GameMode12_PrepareLevel_PrepareMode7Level\n");
   uint8 v0;
 
   mirror_screen_display_register = 15;
@@ -1436,6 +1502,7 @@ LABEL_9:
 }
 
 void GameMode12_PrepareLevel_009860() {  // 009860
+  DEBUG_PRINT("GameMode12_PrepareLevel_009860\n");
   PlayerDraw();
   UpdateCurrentPlayerPositionRAM();
   GameMode14_InLevel_HandlePlayerState();
@@ -1445,6 +1512,7 @@ void GameMode12_PrepareLevel_009860() {  // 009860
 }
 
 void GameMode14_InLevel_InMode7Level() {  // 00987d
+  DEBUG_PRINT("GameMode14_InLevel_InMode7Level\n");
   ManipulateMode7Image();
   if ((misc_nmito_use_flag & 0x40) != 0) {
     if (misc_nmito_use_flag & 1 ||
@@ -1484,6 +1552,7 @@ void UploadMode7KoopaBossesAndLavaAnimation() {  // 0098a9
 }
 
 void GameMode12_PrepareLevel_PrepareNonIggyLarryRoom() {  // 009925
+  DEBUG_PRINT("GameMode12_PrepareLevel_PrepareNonIggyLarryRoom\n");
   int16 v7;
   int16 v10;
 
@@ -1565,6 +1634,7 @@ void GameMode12_PrepareLevel_PrepareNonIggyLarryRoom() {  // 009925
 }
 
 void GameMode12_PrepareLevel_009A1F(uint8 k) {  // 009a1f
+  DEBUG_PRINT("GameMode12_PrepareLevel_009A1F\n");
   int8 v1 = 16;
   do {
     blocks_map16_table_lo[k] = 50;
@@ -1578,6 +1648,7 @@ void GameMode12_PrepareLevel_009A1F(uint8 k) {  // 009a1f
 }
 
 void GameMode12_PrepareLevel_009A3D(uint8 k) {  // 009a3d
+  DEBUG_PRINT("GameMode12_PrepareLevel_009A3D\n");
   int8 v1 = 16;
   do {
     blocks_map16_table_lo[k] = 5;
@@ -2069,6 +2140,7 @@ const uint8 *GetLayer3ImagePtr(int i) {
 }
 
 void InitializeLevelLayer3() {  // 009fb8
+  DEBUG_PRINT("InitializeLevelLayer3\n");
   uint8 v4;
   uint8 r0 = 3 * misc_level_tileset_setting;
   if (misc_level_layer3_settings) {
@@ -2124,6 +2196,7 @@ void InitializeLevelLayer3_GenerateInteractiveTideWater() {  // 00a045
 }
 
 void GameMode0C_LoadOverworld() {  // 00a087
+  DEBUG_PRINT("GameMode0C_LoadOverworld\n");
   TurnOffIO();
   if (ow_warping_on_pipe_or_star_flag)
     HandleOverworldStarPipeWarp_SetPlayerDestination();
@@ -2215,6 +2288,7 @@ void ClearOverworldAndCutsceneRAM() {  // 00a1a6
     *(&timer_prevent_pause + (uint16)j) = 0;
 }
 
+// Always running when in the overworld
 void GameMode0E_ShowOverworld() {  // 00a1be
   CheckWhichControllersArePluggedIn();
   ++counter_local_frames;
@@ -2223,6 +2297,7 @@ void GameMode0E_ShowOverworld() {  // 00a1be
   CompressOamEntExt();
 }
 
+// Always running when in a level
 void GameMode14_InLevel() {  // 00a1da
   if (misc_display_message) {
     DisplayMessage();
@@ -2404,6 +2479,7 @@ void UploadOverworldLayer1And2Tilemaps(uint8 j) {  // 00a529
 }
 
 void GameMode12_PrepareLevel() {  // 00a59c
+  DEBUG_PRINT("GameMode12_PrepareLevel\n");
   ClearLayer3Tilemap();
   DamagePlayer_DisableButtons();
   flag_upload_load_screen_letters_tovram = 0;
@@ -3467,7 +3543,9 @@ LABEL_11:
         } while (--v4);
       }
     }
+    // DEBUG_PRINT("Handling player_current_state: %d\n", player_current_state);
     GameMode14_InLevel_HandlePlayerState();
+
     if ((io_controller_press1 & 0x20) != 0)
       DropReservedItem();
   }
@@ -3478,6 +3556,7 @@ void GameMode14_InLevel_Return00C592() {  // 00c592
   ;
 }
 
+// Only runs when player is in a level
 void GameMode14_InLevel_HandlePlayerState() {  // 00c593
   kGameMode14_InLevel_PlayerStatePtrs[player_current_state]();
 }
@@ -4255,6 +4334,7 @@ void CheckPowerUpSpecificPlayerAttacks() {  // 00d062
   }
 }
 
+//TODO Player Death
 void PlayerState09_Death() {  // 00d0b6
   player_current_power_up = 0;
   player_current_pose = 62;
@@ -4264,7 +4344,9 @@ void PlayerState09_Death() {  // 00d0b6
     misc_exit_level_action = 0x80;
     if (!flag_prevent_yoshi_carry_over)
       yoshi_carry_over_levels_flag = 0;
-    if ((--player_current_life_count & 0x80) == 0) {
+  
+    // Cheat! No more losing lives!
+    if ((player_current_life_count & 0x80) == 0) {
       if (HAS_LM_FEATURE(kLmFeature_TimerTweaks) && lm_timer_var != 0 || 
           counter_timer_ones | counter_timer_tens | counter_timer_hundreds) {
         misc_game_mode = 11;
@@ -6150,7 +6232,12 @@ void PlayerState00_CheckPlayerPitFall() {  // 00f595
   }
 }
 
+// TODO Main function to hurt player
 void DamagePlayer_Hurt() {  // 00f5b7
+  DEBUG_PRINT("DamagePlayer_Hurt\n");
+  if (!lua_on_player_damage())
+    return;
+
   if (!player_current_state && !(timer_end_level | (uint8)(timer_star_power | timer_player_hurt))) {
     counter_pink_berry_cloud_coins = 0;
     if (player_wall_walk_status)

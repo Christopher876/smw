@@ -54,7 +54,7 @@ void cart_load(Cart* cart, int type, uint8_t* rom, int romSize, int ramSize) {
 uint8_t cart_read(Cart* cart, uint8_t bank, uint16_t adr) {
   switch(cart->type) {
     case 0: 
-      assert(0);
+      // assert(0);
       return cart->snes->openBus;
     case 1: return cart_readLorom(cart, bank, adr);
     case 2: return cart_readHirom(cart, bank, adr);

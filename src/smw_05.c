@@ -4,6 +4,7 @@
 #include "variables.h"
 #include "assets/smw_assets.h"
 #include "snes/snes.h"
+#include "smw_lua.h"
 void (*kBufferScrollingTiles_Layer1_Main_PtrsLong058823[32])(void) = {
     &BufferScrollingTiles_Layer1,
     &BufferScrollingTiles_Layer1,
@@ -2334,7 +2335,7 @@ const uint8 *GetSpriteListPtr() {
   return kLvlSprBlob(Load24(ptr_sprite_list_data));
 }
 
-bool LoadLevel() {  // 05d796
+bool LoadLevel(int level) {  // 05d796
   uint16 v1;
   int16 v5;
   uint16 v10;
@@ -2348,6 +2349,7 @@ bool LoadLevel() {  // 05d796
   if (counter_sublevels_entered) {
     uint8 v0 = ((misc_level_layout_flags & 1) != 0) ? HIBYTE(player_ypos) : HIBYTE(player_xpos);
     r14w = (ow_players_map[(uint8)player_current_characterx4 >> 2] != 0) << 8 | misc_subscreen_exit_entrance_number_lo[v0];
+    DEBUG_PRINT("Loading level %d\n", r14w);
    
     r14w = LmHook_LoadLevelInfo_A(r14w, v0);
 
@@ -2386,7 +2388,14 @@ bool LoadLevel() {  // 05d796
       if ((ow_players_map[v1] & 0xF) != 0)
         v4 += 0x400;
       v2 = ow_level_number_of_each_tiletbl[v4];
-      ow_level_number_lo = v2;
+      DEBUG_PRINT("Loading level v4:%d\n", v4);
+      DEBUG_PRINT("Loading level v2:%d\n", v2);
+      if (level == -1) {
+        ow_level_number_lo = v2; //TODO Change this for the level
+      } else {
+        DEBUG_PRINT("LOADING LEVEL BY LEVEL NUMBER\n");
+        ow_level_number_lo = level;
+      }
     }
     if (v2 >= 0x25)
       v2 -= 0x24;

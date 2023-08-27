@@ -1,0 +1,498 @@
+#include "smw_lua.h"
+#include "smw_wrappers.h"
+#include "consts.h"
+#include "smw_rtl.h"
+#include "variables.h"
+#include "assets/smw_assets.h"
+#include "common_rtl.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <dirent.h>
+#include <string.h>
+#include "third_party/sds/sds.h"
+
+
+// Struct to hold the lua state and the mod names
+struct lua_mod {
+    lua_State *L;
+    sds name;
+};
+
+struct lua_script {
+    bool has_update;
+};
+
+lua_State *L;
+sds scripts_with_update[3];
+sds scripts_on_player_death[2];
+sds scripts_on_player_respawn[2];
+sds scripts_on_player_powerup[2];
+sds scripts_on_misc_1up[2];
+sds scripts_on_player_damage[2];
+
+static void dumpstack (lua_State *L) {
+  int top=lua_gettop(L);
+  for (int i=1; i <= top; i++) {
+    printf("%d\t%s\t", i, luaL_typename(L,i));
+    switch (lua_type(L, i)) {
+      case LUA_TNUMBER:
+        printf("%g\n",lua_tonumber(L,i));
+        break;
+      case LUA_TSTRING:
+        printf("%s\n",lua_tostring(L,i));
+        break;
+      case LUA_TBOOLEAN:
+        printf("%s\n", (lua_toboolean(L, i) ? "true" : "false"));
+        break;
+      case LUA_TNIL:
+        printf("%s\n", "nil");
+        break;
+      default:
+        printf("%p\n",lua_topointer(L,i));
+        break;
+    }
+  }
+}
+
+
+int getPlayerCurrentLifeCount(lua_State *L) {
+    lua_pushinteger(L, (lua_Integer)player_current_life_count);
+    return 1;
+}
+
+int setPlayerCurrentLifeCount(lua_State *L) {
+    int nargs = lua_gettop(L);
+    if (nargs != 1) {
+        return luaL_error(L, "setPlayerCurrentLifeCount expects 1 argument");
+    }
+    lua_Integer newValue = luaL_checkinteger(L, 1);
+    player_current_life_count = (uint8_t)newValue;
+    return 0;
+}
+
+int getPlayerCurrentState(lua_State *L) {
+    lua_pushinteger(L, (lua_Integer)player_current_state);
+    return 1;
+}
+
+int setPlayerCurrentState(lua_State *L) {
+    int nargs = lua_gettop(L);
+    if (nargs != 1) {
+        return luaL_error(L, "setPlayerCurrentState expects 1 argument");
+    }
+    lua_Integer newValue = luaL_checkinteger(L, 1);
+    player_current_state = (uint8_t)newValue;
+    return 0;
+}
+
+int getPlayerOnScreenX(lua_State *L) {
+    lua_pushinteger(L, (lua_Integer)player_on_screen_pos_x);
+    return 1;
+}
+
+int getPlayerOnScreenY(lua_State *L) {
+    lua_pushinteger(L, (lua_Integer)player_on_screen_pos_y);
+    return 1;
+}
+
+int getPlayerHasYoshi(lua_State *L) {
+    lua_pushboolean(L, (lua_Integer)player_riding_yoshi_flag);
+    return 1;
+}
+
+// Power Ups
+//TODO Add a switch in here to set any powerup
+int givePlayerPowerUp(lua_State *L) {
+    int nargs = lua_gettop(L);
+    if (nargs != 1) {
+        return luaL_error(L, "setPlayerCurrentLifeCount expects 1 argument");
+    }
+    lua_Integer powerup = luaL_checkinteger(L, 1);
+
+    // TODO These need to be passing the right "k"
+    switch (powerup) {
+        case 0:
+            SprXXX_PowerUps_GiveMarioMushroom(11);
+            break;
+        case 3:
+            SprXXX_PowerUps_GiveMarioStar(11);
+            break;
+        case 4:
+            SprXXX_PowerUps_GiveMarioCape(11);
+            break;
+        case 5:
+            SprXXX_PowerUps_GiveMarioFire(11);
+            break;
+        case 6:
+            SprXXX_PowerUps_GiveMario1Up(11);
+            break;
+        default:
+            break;
+    }
+
+    return 0;
+}
+
+void smw_lua_init_player() {
+    // Init the player table
+    lua_newtable(L);
+    lua_pushinteger(L, 0);
+    lua_setfield(L, -2, "x");
+    lua_pushinteger(L, 0);
+    lua_setfield(L, -2, "y");
+    lua_setglobal(L, "player");
+}
+
+void smw_lua_init_powerups() {
+    /*
+    PowerUps = {
+        Mushroom = 0,
+        Star = 3,
+        Cape = 4,
+        Fire = 5,
+        OneUp = 6,
+    }
+    */
+
+    lua_newtable(L);
+
+    lua_pushstring(L, "Mushroom");
+    lua_pushinteger(L, 0);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "Star");
+    lua_pushinteger(L, 3);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "Cape");
+    lua_pushinteger(L, 4);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "Fire");
+    lua_pushinteger(L, 5);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "OneUp");
+    lua_pushinteger(L, 6);
+    lua_settable(L, -3);
+
+    lua_setglobal(L, "PowerUps");
+}
+
+void smw_lua_bind_keys() {
+    // Send enums to lua with the SDL keys
+
+    // Setup the variable that has the SDL key that is pressed
+    lua_newtable(L);
+    lua_pushinteger(L, 0);
+    lua_setfield(L, -2, "pressed_key");
+    lua_setglobal(L, "sdl");
+    DEBUG_PRINT("Set pressed_sdl_key to 0\n");
+}
+
+void lua_send_sdl_pressed_key(uint32_t key) {
+    // Update the pressed SDL key
+    lua_getglobal(L, "sdl");
+    lua_pushinteger(L, (lua_Integer)key);
+    lua_setfield(L, -2, "pressed_key");
+}
+
+void lua_update_player_pos() {
+    // Update the player position
+    lua_getglobal(L, "player");
+    lua_pushinteger(L, (lua_Integer)player_on_screen_pos_x);
+    lua_setfield(L, -2, "x");
+    lua_pushinteger(L, (lua_Integer)player_on_screen_pos_y);
+    lua_setfield(L, -2, "y");
+}
+
+int lua_load_level(lua_State *L) {
+    int nargs = lua_gettop(L);
+    if (nargs != 1) {
+        return luaL_error(L, "load_level expects 1 argument");
+    }
+    lua_Integer level = luaL_checkinteger(L, 1);
+
+    level_loader = (int) level;
+    misc_game_mode = 15;
+    return 0;
+}
+
+void smw_lua_set_variables() {
+    // Player lives
+    lua_pushcfunction(L, getPlayerCurrentLifeCount);
+    lua_setglobal(L, "getPlayerCurrentLifeCount");
+    lua_pushcfunction(L, setPlayerCurrentLifeCount);
+    lua_setglobal(L, "setPlayerCurrentLifeCount");
+
+    // Player state
+    lua_pushcfunction(L, getPlayerCurrentState);
+    lua_setglobal(L, "getPlayerCurrentState");
+
+    // Player position
+    lua_pushcfunction(L, getPlayerOnScreenX);
+    lua_setglobal(L, "getPlayerOnScreenX");
+    lua_pushcfunction(L, getPlayerOnScreenY);
+    lua_setglobal(L, "getPlayerOnScreenY");
+
+    // Player has yoshi
+    lua_pushcfunction(L, getPlayerHasYoshi);
+    lua_setglobal(L, "getPlayerHasYoshi");
+
+    // Power Ups
+    lua_pushcfunction(L, givePlayerPowerUp);
+    lua_setglobal(L, "givePlayerPowerUp");
+
+    lua_pushcfunction(L, lua_load_script);
+    lua_setglobal(L, "dep");
+
+    lua_pushcfunction(L, lua_game_reset);
+    lua_setglobal(L, "reset");
+
+    lua_pushcfunction(L, lua_scripts_reload);
+    lua_setglobal(L, "reload");
+
+    lua_pushcfunction(L, lua_load_level);
+    lua_setglobal(L, "load_level");
+
+    lua_pushcfunction(L, DamagePlayer_Hurt_wrapper);
+    lua_setglobal(L, "damage_player");
+
+    lua_pushcfunction(L, DamagePlayer_Kill_wrapper);
+    lua_setglobal(L, "kill_player");
+}
+
+void lua_init() {
+    lua_getglobal(L, "init");
+    if (!lua_isfunction(L, -1))
+        return;
+
+    if (lua_pcall(L, 0, 1, 0)) {
+        fprintf(stderr, "Error calling function: %s\n", lua_tostring(L, -1));
+        lua_close(L);
+        return;
+    }
+}
+
+int lua_scripts_reload() {
+    smw_lua_init();
+    return 0;
+}
+
+int lua_game_reset() {
+    RtlReset(1);
+    smw_lua_init();
+    return 0;
+}
+
+int lua_load_script(lua_State *L) {
+    // Get the script name
+    int nargs = lua_gettop(L);
+    if (nargs != 1) {
+        return luaL_error(L, "load_script expects 1 argument");
+    }
+    const char *script_name = luaL_checkstring(L, 1);
+
+    lua_newtable(L);
+    lua_setglobal(L, "utils");
+    luaL_dofile(L, script_name);
+
+    // Check if the script has an update function
+    lua_getglobal(L, "utils");
+    lua_getfield(L, -1, "update");
+    if (!lua_isfunction(L, -1))
+        return 1;
+    scripts_with_update[2] = sdsnew("utils");
+
+    return 0;
+}
+
+void lua_update() {
+    // Internal variables update
+    lua_update_player_pos();
+
+    // Scripts Update
+    for(int i = 0; i < sizeof(scripts_with_update) / sizeof(scripts_with_update[0]); i++) {
+        lua_getglobal(L, scripts_with_update[i]);
+        lua_getfield(L, -1, "update");
+        if (!lua_isfunction(L, -1))
+            continue;
+        if (lua_pcall(L, 0, 1, 0)) {
+            fprintf(stderr, "Error calling function: %s\n", lua_tostring(L, -1));
+            lua_close(L);
+            return;
+        }
+    }
+}
+
+// Events
+bool lua_on_player_damage() {
+    bool ret = true;
+    for (int i = 0; i < sizeof(scripts_on_player_damage) / sizeof(scripts_on_player_damage[0]); i++) {
+        lua_getglobal(L, scripts_on_player_damage[i]);
+        lua_getfield(L, -1, "on_player_damage");
+        if (!lua_isfunction(L, -1))
+            continue;
+
+        if (lua_pcall(L, 0, 1, 0))
+            return ret;
+
+        if (lua_isnoneornil(L, -1)) {} 
+        else if (lua_isboolean(L, -1)) {
+            ret = lua_toboolean(L, -1);
+        }
+    }
+    return ret;
+}
+
+void lua_on_misc_1up() {
+    for (int i = 0; i < sizeof(scripts_on_misc_1up) / sizeof(scripts_on_misc_1up[0]); i++) {
+        lua_getglobal(L, scripts_on_misc_1up[i]);
+        lua_getfield(L, -1, "on_misc_1up");
+        if (!lua_isfunction(L, -1))
+            continue;
+
+        if (lua_pcall(L, 0, 1, 0)) {
+            fprintf(stderr, "Error calling function: %s\n", lua_tostring(L, -1));
+            lua_close(L);
+            return;
+        }
+    }
+}
+
+bool lua_on_player_powerup(int powerup) {
+    bool ret = true;
+    for (int i = 0; i < sizeof(scripts_on_player_powerup) / sizeof(scripts_on_player_powerup[0]); i++) {
+        lua_getglobal(L, scripts_on_player_powerup[i]);
+        lua_getfield(L, -1, "on_player_powerup");
+        if (!lua_isfunction(L, -1))
+            continue;
+
+        lua_pushinteger(L, (lua_Integer)powerup);
+
+        DEBUG_PRINT("Calling on_player_powerup: %d\n", powerup);
+        if (lua_pcall(L, 1, 1, 0)) {
+            return ret;
+        }
+        if (lua_isnoneornil(L, -1)) {} 
+        else if (lua_isboolean(L, -1)) {
+            ret = lua_toboolean(L, -1);
+        }
+    }
+    return ret;
+}
+
+void lua_on_player_death() {
+    for (int i = 0; i < sizeof(scripts_on_player_death) / sizeof(scripts_on_player_death[0]); i++) {
+        lua_getglobal(L, scripts_on_player_death[i]);
+        lua_getfield(L, -1, "on_player_death");
+        if (!lua_isfunction(L, -1))
+            continue;
+
+        if (lua_pcall(L, 0, 1, 0)) {
+            fprintf(stderr, "Error calling function: %s\n", lua_tostring(L, -1));
+            lua_close(L);
+            return;
+        }
+    }
+}
+
+void lua_on_player_respawn() {
+    for(int i = 0; i < sizeof(scripts_on_player_respawn) / sizeof(scripts_on_player_respawn[0]); i++) {
+        lua_getglobal(L, scripts_on_player_respawn[i]);
+        lua_getfield(L, -1, "on_player_respawn");
+        if (!lua_isfunction(L, -1))
+            continue;
+        if (lua_pcall(L, 0, 1, 0)) {
+            fprintf(stderr, "Error calling function: %s\n", lua_tostring(L, -1));
+            lua_close(L);
+            return;
+        }
+    }
+}
+
+void lua_cleanup() {
+    lua_close(L);
+}
+
+void smw_lua_init() {
+    level_loader = -1;
+
+    L = luaL_newstate();
+    luaL_openlibs(L);
+
+    smw_lua_set_variables();
+
+    // TODO Dynamically init these
+    scripts_with_update[0] = sdsnew("first");
+    scripts_with_update[1] = sdsnew("second");
+
+    scripts_on_player_death[0] = sdsnew("first");
+    scripts_on_player_death[1] = sdsnew("second");
+
+    scripts_on_player_respawn[0] = sdsnew("first");
+    scripts_on_player_respawn[1] = sdsnew("second");
+
+    scripts_on_player_powerup[0] = sdsnew("first");
+    scripts_on_player_powerup[1] = sdsnew("second");
+
+    scripts_on_misc_1up[0] = sdsnew("first");
+    scripts_on_misc_1up[1] = sdsnew("second");
+
+    scripts_on_player_damage[0] = sdsnew("first");
+    scripts_on_player_damage[1] = sdsnew("second");
+
+    // Load all scripts from the scripts directory
+    // Subfolders are inidividual mods
+    struct dirent *entry;
+    DIR *mod_folder;
+
+    mod_folder = opendir("./scripts");
+    if (mod_folder == NULL) {
+        fprintf(stderr, "Error opening scripts folder\n");
+        lua_close(L);
+        return;
+    }
+
+    int mod_count = 0;
+    while((entry = readdir(mod_folder)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+            continue;
+        mod_count++;
+    }
+
+    char *mod_names[mod_count];
+    rewinddir(mod_folder);
+    int i = 0;
+    while((entry = readdir(mod_folder)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+            continue;
+        mod_names[i] = entry->d_name;
+        i++;
+    }
+
+    // Load the main lua file for each mod
+    // TODO Callback when a level is loaded to load the level lua file
+    for (int i = 0; i < mod_count; i++) {
+        printf("Loading mod: %s...\n", mod_names[i]);
+        sds mod_path;
+        mod_path = sdsnew("./scripts/");
+        mod_path = sdscatprintf(mod_path, "%s/main.lua", mod_names[i]);
+        
+        lua_newtable(L);
+        lua_setglobal(L, mod_names[i]);
+
+        if (luaL_dofile(L, mod_path)) {
+            fprintf(stderr, "Error loading mod: %s\n", lua_tostring(L, -1));
+            lua_close(L);
+            return;
+        }
+    }
+
+    printf("Loaded %d mods\n", mod_count);
+    closedir(mod_folder);
+    smw_lua_bind_keys();
+    smw_lua_init_player();
+    smw_lua_init_powerups();
+}

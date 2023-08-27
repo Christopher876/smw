@@ -1,0 +1,3 @@
+[submodule "third_party/sds"]
+	path = third_party/sds
+	url = https://github.com/antirez/sds.git
