@@ -5,6 +5,9 @@
 #include "assets/smw_assets.h"
 #include "smw_lua.h"
 
+bool player_is_dead = false;
+int level_loader = -1;
+
 static FuncV *const kInitAndMainLoop_GameModePtrs[42] = {
     &GameMode00_LoadNintendoPresents,
     &GameMode01_ShowNintendoPresents,

@@ -1055,5 +1055,5 @@ typedef struct ExAnimationInfo {
 
 extern bool g_lunar_magic;
 
-bool player_is_dead;
-int level_loader;
+extern bool player_is_dead;
+extern int level_loader;
