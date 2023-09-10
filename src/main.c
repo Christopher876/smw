@@ -92,7 +92,7 @@ enum {
 
 static const char kWindowTitle[] = "SMW";
 static uint32 g_win_flags = SDL_WINDOW_RESIZABLE;
-static SDL_Window *g_window;
+SDL_Window *g_window;
 
 static uint8 g_paused, g_turbo, g_replay_turbo = true, g_cursor = true;
 static uint8 g_current_window_scale;
@@ -269,7 +269,7 @@ static void SDLCALL AudioCallback(void *userdata, Uint8 *stream, int len) {
 
 
 // State for sdl renderer
-static SDL_Renderer *g_renderer;
+SDL_Renderer *g_renderer;
 static SDL_Texture *g_texture;
 static SDL_Rect g_sdl_renderer_rect;
 

@@ -2,6 +2,7 @@
 #define SMW_LUA_H
 #include <stdbool.h>
 #include "funcs.h"
+#include "SDL.h"
 #include "lua.h"
 #include "lualib.h"
 #include "lauxlib.h"
@@ -32,5 +33,7 @@ void lua_nuklear_draw();
 int lua_load_script(lua_State *L);
 
 extern struct nk_context *nk;
+extern SDL_Renderer *g_renderer;
+extern SDL_Window *g_window;
 
 #endif

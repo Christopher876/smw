@@ -81,6 +81,35 @@ int Nuklear_SdlRenderer_Draw(lua_State *L) {
   return 0;
 }
 
+// SDL Functions
+int get_sdl_window_size(lua_State *L) {
+    int nargs = lua_gettop(L);
+    if (nargs != 1) {
+        return luaL_error(L, "get_sdl_window_size expects 0 arguments");
+    }
+
+    int width, height;
+    SDL_GetWindowSize(g_window, &width, &height);
+
+    lua_pushinteger(L, (lua_Integer)width);
+    lua_pushinteger(L, (lua_Integer)height);
+
+    return 2;
+}
+
+int set_sdl_window_size(lua_State *L) {
+    int nargs = lua_gettop(L);
+    if (nargs != 3) {
+        return luaL_error(L, "set_sdl_window_size expects 2 arguments");
+    }
+    lua_Integer width = luaL_checkinteger(L, 2);
+    lua_Integer height = luaL_checkinteger(L, 3);
+
+    SDL_SetWindowSize(g_window, width, height);
+
+    return 0;
+}
+
 
 int getPlayerCurrentLifeCount(lua_State *L) {
     lua_pushinteger(L, (lua_Integer)player_current_life_count);
@@ -206,13 +235,20 @@ void smw_lua_init_powerups() {
     lua_setglobal(L, "PowerUps");
 }
 
-void smw_lua_bind_keys() {
+void smw_lua_bind_sdl() {
     // Send enums to lua with the SDL keys
 
     // Setup the variable that has the SDL key that is pressed
     lua_newtable(L);
     lua_pushinteger(L, 0);
     lua_setfield(L, -2, "pressed_key");
+
+    lua_pushcfunction(L, get_sdl_window_size);
+    lua_setfield(L, -2, "get_window_size");
+
+    lua_pushcfunction(L, set_sdl_window_size);
+    lua_setfield(L, -2, "set_window_size");
+
     lua_setglobal(L, "sdl");
     DEBUG_PRINT("Set pressed_sdl_key to 0\n");
 }
@@ -659,7 +695,10 @@ void smw_lua_init() {
 
     printf("Loaded %d mods\n", mod_count);
     closedir(mod_folder);
-    smw_lua_bind_keys();
+    smw_lua_bind_sdl();
     smw_lua_init_player();
     smw_lua_init_powerups();
+
+    //TODO Init needs to done for every file that gets loaded
+    lua_init();
 }
