@@ -2396,6 +2396,7 @@ bool LoadLevel(int level) {  // 05d796
         DEBUG_PRINT("LOADING LEVEL BY LEVEL NUMBER\n");
         ow_level_number_lo = level;
       }
+      lua_on_level_start(ow_level_number_lo);
     }
     if (v2 >= 0x25)
       v2 -= 0x24;

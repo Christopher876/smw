@@ -5466,7 +5466,7 @@ void SprXXX_PowerUps_01C538(uint8 k, uint8 a) {  // 01c538
     io_sound_ch3 = 11;
   }
   //TODO Maybe make lua have the ability to prevent the next line from executing?
-  if (!lua_on_player_powerup(v2))
+  if (!lua_on_player_powerup(kSprXXX_PowerUps_GivePowerPtrIndex[v2]))
     return;
   kSprXXX_PowerUps_HandlePowerUpPtrs[kSprXXX_PowerUps_GivePowerPtrIndex[v2]](k);
 }

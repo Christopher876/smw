@@ -33,6 +33,7 @@ sds scripts_on_player_respawn[2];
 sds scripts_on_player_powerup[2];
 sds scripts_on_misc_1up[2];
 sds scripts_on_player_damage[2];
+sds scripts_on_level_start[1];
 
 bool lua_key_pressed[NUM_KEYS];
 
@@ -530,6 +531,25 @@ void lua_update() {
 }
 
 // Events
+void lua_on_level_start(uint8 level) {
+    for (int i = 0; i < sizeof(scripts_on_level_start) / sizeof(scripts_on_level_start[0]); i++) {
+        lua_getglobal(L, scripts_on_level_start[i]);
+        lua_getfield(L, -1, "on_level_load");
+        if (!lua_isfunction(L, -1))
+            continue;
+
+        lua_pushvalue(L, -2);
+        lua_pushinteger(L, (lua_Integer)level);
+
+        DEBUG_PRINT("Calling on_level_start: %d\n", level);
+        if (lua_pcall(L, 2, 1, 0)) {
+            fprintf(stderr, "Error calling function: %s\n", lua_tostring(L, -1));
+            lua_close(L);
+            return;
+        }
+    }
+}
+
 bool lua_on_player_damage() {
     bool ret = true;
     for (int i = 0; i < sizeof(scripts_on_player_damage) / sizeof(scripts_on_player_damage[0]); i++) {
@@ -572,10 +592,11 @@ bool lua_on_player_powerup(int powerup) {
         if (!lua_isfunction(L, -1))
             continue;
 
+        lua_pushvalue(L, -2);
         lua_pushinteger(L, (lua_Integer)powerup);
 
         DEBUG_PRINT("Calling on_player_powerup: %d\n", powerup);
-        if (lua_pcall(L, 1, 1, 0)) {
+        if (lua_pcall(L, 2, 1, 0)) {
             return ret;
         }
         if (lua_isnoneornil(L, -1)) {} 
@@ -645,6 +666,8 @@ void smw_lua_init() {
 
     scripts_on_player_damage[0] = sdsnew("first");
     scripts_on_player_damage[1] = sdsnew("second");
+
+    scripts_on_level_start[0] = sdsnew("first");
 
     // Load all scripts from the scripts directory
     // Subfolders are inidividual mods
