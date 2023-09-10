@@ -12,6 +12,9 @@
 #include <string.h>
 #include "third_party/sds/sds.h"
 
+#include "../third_party/Nuklear/nuklear.h"
+
+#define NUM_KEYS 256
 
 // Struct to hold the lua state and the mod names
 struct lua_mod {
@@ -30,6 +33,8 @@ sds scripts_on_player_respawn[2];
 sds scripts_on_player_powerup[2];
 sds scripts_on_misc_1up[2];
 sds scripts_on_player_damage[2];
+
+bool lua_key_pressed[NUM_KEYS];
 
 static void dumpstack (lua_State *L) {
   int top=lua_gettop(L);
@@ -53,6 +58,27 @@ static void dumpstack (lua_State *L) {
         break;
     }
   }
+}
+
+enum {EASY, HARD};
+static int op = EASY;
+static float value = 0.6f;
+static int i =  20;
+
+int Nuklear_SdlRenderer_Draw(lua_State *L) {
+  if (nk_begin(nk, "Show", nk_rect(5, 0, 110, 110),
+    NK_WINDOW_BORDER|NK_WINDOW_MOVABLE|NK_WINDOW_CLOSABLE|NK_WINDOW_SCALABLE | NK_WINDOW_NO_SCROLLBAR)) {
+    nk_layout_row_begin(nk, NK_STATIC, 30, 2);
+    {
+        nk_layout_row_push(nk, 40);
+        nk_label(nk, "Mario Power Up:", NK_TEXT_LEFT);
+        nk_layout_row_push(nk, 40);
+        nk_label(nk, "255", NK_TEXT_LEFT);
+    }
+    nk_layout_row_end(nk);
+  }
+  nk_end(nk);
+  return 0;
 }
 
 
@@ -191,11 +217,33 @@ void smw_lua_bind_keys() {
     DEBUG_PRINT("Set pressed_sdl_key to 0\n");
 }
 
-void lua_send_sdl_pressed_key(uint32_t key) {
+void lua_handle_input(uint32_t key, bool pressed) {
+    if (key >= NUM_KEYS)
+        return;
+    lua_key_pressed[key] = pressed;
+    
     // Update the pressed SDL key
-    lua_getglobal(L, "sdl");
-    lua_pushinteger(L, (lua_Integer)key);
-    lua_setfield(L, -2, "pressed_key");
+    if (!pressed) {
+        lua_getglobal(L, "sdl");
+        lua_pushinteger(L, (lua_Integer)0);
+        lua_setfield(L, -2, "pressed_key");
+    } else { 
+        lua_getglobal(L, "sdl");
+        lua_pushinteger(L, (lua_Integer)key);
+        lua_setfield(L, -2, "pressed_key");
+    }
+}
+
+void lua_nuklear_draw() {
+    lua_getglobal(L, "draw_nuklear");
+    if (!lua_isfunction(L, -1))
+        return;
+
+    if (lua_pcall(L, 0, 1, 0)) {
+        fprintf(stderr, "Error calling function: %s\n", lua_tostring(L, -1));
+        lua_close(L);
+        return;
+    }
 }
 
 void lua_update_player_pos() {
@@ -216,6 +264,100 @@ int lua_load_level(lua_State *L) {
 
     level_loader = (int) level;
     misc_game_mode = 15;
+    return 0;
+}
+
+int lua_nk_begin(lua_State *L) {
+    int nargs = lua_gettop(L);
+    if (nargs != 5) {
+        return luaL_error(L, "nk_begin expects 3 arguments");
+    }
+
+    //TODO first arg is the table
+    const char *name = luaL_checkstring(L, 2);
+    
+    struct nk_rect rect;
+    if (lua_istable(L, 3)) {
+        lua_getfield(L, 3, "x");
+        lua_Integer x = luaL_checkinteger(L, -1);
+        lua_getfield(L, 3, "y");
+        lua_Integer y = luaL_checkinteger(L, -1);
+        lua_getfield(L, 3, "w");
+        lua_Integer w = luaL_checkinteger(L, -1);
+        lua_getfield(L, 3, "h");
+        lua_Integer h = luaL_checkinteger(L, -1);
+        rect = nk_rect(x, y, w, h);
+    }
+
+    lua_Integer flags = luaL_checkinteger(L, 4);
+    lua_Integer bounds = luaL_checkinteger(L, 5);
+
+    bool ret = nk_begin(nk, name, rect, flags);
+    lua_pushboolean(L, ret);
+
+    return 1;
+}
+
+int lua_nk_end(lua_State *L) {
+    int nargs = lua_gettop(L);
+    if (nargs != 1) {
+        return luaL_error(L, "nk_end expects 0 arguments");
+    }
+
+    nk_end(nk);
+
+    return 0;
+}
+
+int lua_nk_layout_row_begin(lua_State *L) {
+    int nargs = lua_gettop(L);
+    if (nargs != 4) {
+        return luaL_error(L, "nk_layout_row_begin expects 3 arguments");
+    }
+    lua_Integer layout_format = luaL_checkinteger(L, 2);
+    lua_Integer row_height = luaL_checkinteger(L, 3);
+    lua_Integer cols = luaL_checkinteger(L, 4);
+    // lua_Integer ratio = luaL_checkinteger(L, 4); //TODO Come back to ratio
+
+    nk_layout_row_begin(nk, layout_format, row_height, cols);
+    // nk_layout_row_push(nk, ratio);
+
+    return 0;
+}
+
+int lua_nk_layout_row_end(lua_State *L) {
+    int nargs = lua_gettop(L);
+    if (nargs != 1) {
+        return luaL_error(L, "nk_layout_row_end expects 0 arguments");
+    }
+
+    nk_layout_row_end(nk);
+
+    return 0;
+}
+
+int lua_nk_layout_row_push(lua_State *L) {
+    int nargs = lua_gettop(L);
+    if (nargs != 2) {
+        return luaL_error(L, "nk_layout_row_push expects 1 argument");
+    }
+    lua_Integer ratio = luaL_checkinteger(L, 2);
+
+    nk_layout_row_push(nk, ratio);
+
+    return 0;
+}
+
+int lua_nk_label(lua_State *L) {
+    int nargs = lua_gettop(L);
+    if (nargs != 3) {
+        return luaL_error(L, "nk_label expects 2 arguments");
+    }
+    const char *text = luaL_checkstring(L, 2);
+    lua_Integer alignment = luaL_checkinteger(L, 3);
+
+    nk_label(nk, text, alignment);
+
     return 0;
 }
 
@@ -261,6 +403,31 @@ void smw_lua_set_variables() {
 
     lua_pushcfunction(L, DamagePlayer_Kill_wrapper);
     lua_setglobal(L, "kill_player");
+
+    // Nuklear
+    lua_newtable(L);
+    lua_pushcfunction(L, Nuklear_SdlRenderer_Draw);
+    lua_setfield(L, -2, "nuklear_demo");
+
+    lua_pushcfunction(L, lua_nk_begin);
+    lua_setfield(L, -2, "nk_begin");
+
+    lua_pushcfunction(L, lua_nk_end);
+    lua_setfield(L, -2, "nk_end");
+
+    lua_pushcfunction(L, lua_nk_layout_row_begin);
+    lua_setfield(L, -2, "nk_layout_row_begin");
+
+    lua_pushcfunction(L, lua_nk_layout_row_push);
+    lua_setfield(L, -2, "nk_layout_row_push");
+
+    lua_pushcfunction(L, lua_nk_layout_row_end);
+    lua_setfield(L, -2, "nk_layout_row_end");
+
+    lua_pushcfunction(L, lua_nk_label);
+    lua_setfield(L, -2, "nk_label");
+
+    lua_setglobal(L, "nk");
 }
 
 void lua_init() {

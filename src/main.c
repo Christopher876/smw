@@ -32,6 +32,21 @@
 #include "assets/smw_assets.h"
 #include "smw_lua.h"
 
+// Nuklear
+#define NK_INCLUDE_FIXED_TYPES
+#define NK_INCLUDE_STANDARD_IO
+#define NK_INCLUDE_STANDARD_VARARGS
+#define NK_INCLUDE_DEFAULT_ALLOCATOR
+#define NK_INCLUDE_VERTEX_BUFFER_OUTPUT
+#define NK_INCLUDE_FONT_BAKING
+#define NK_INCLUDE_DEFAULT_FONT
+#define NK_IMPLEMENTATION
+#define NK_SDL_RENDERER_IMPLEMENTATION
+#include "../third_party/Nuklear/nuklear.h"
+#include "nuklear_sdl_renderer.h"
+struct nk_context *nk;
+struct nk_colorf bg;
+
 typedef struct GamepadInfo {
   uint32 modifiers;
   SDL_JoystickID joystick_id;
@@ -259,6 +274,7 @@ static SDL_Texture *g_texture;
 static SDL_Rect g_sdl_renderer_rect;
 
 static bool SdlRenderer_Init(SDL_Window *window) {
+  printf("Created sdl renderer\n");
   if (g_config.shader)
     fprintf(stderr, "Warning: Shaders are supported only with the OpenGL backend\n");
 
@@ -277,9 +293,30 @@ static bool SdlRenderer_Init(SDL_Window *window) {
       printf(" %s", SDL_GetPixelFormatName(renderer_info.texture_formats[i]));
     printf("\n");
   }
+
+  nk = nk_sdl_init(g_window, renderer);
+  {
+      struct nk_font_atlas *atlas;
+      struct nk_font_config config = nk_font_config(0);
+      struct nk_font *font;
+
+      nk_sdl_font_stash_begin(&atlas);
+      font = nk_font_atlas_add_default(atlas, 13 * 2, &config);
+      nk_sdl_font_stash_end();
+      font->handle.height /= 2;
+      nk_style_set_font(nk, &font->handle);
+  }
+  // struct nk_style* style = &nk->style;
+  // style->window.padding = nk_vec2(4, 4);  // Adjust padding
+  // style->window.group_padding = nk_vec2(2, 2);  // Adjust group padding
+  // style->window.spacing = nk_vec2(2, 2);  // Adjust spacing
+
+
+
   g_renderer = renderer;
+
   if (!g_config.ignore_aspect_ratio)
-    SDL_RenderSetLogicalSize(renderer, g_snes_width, g_snes_height);
+    SDL_RenderSetLogicalSize(renderer, g_snes_width * 4, g_snes_height * 4);
   if (g_config.linear_filtering)
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "best");
 
@@ -305,6 +342,9 @@ static void SdlRenderer_BeginDraw(int width, int height, uint8 **pixels, int *pi
     printf("Failed to lock texture: %s\n", SDL_GetError());
     return;
   }
+
+  //TODO Draw from lua
+  lua_nuklear_draw();
 }
 
 static void SdlRenderer_EndDraw(void) {
@@ -315,6 +355,7 @@ static void SdlRenderer_EndDraw(void) {
   //  printf("%f ms\n", v * 1000);
   SDL_RenderClear(g_renderer);
   SDL_RenderCopy(g_renderer, g_texture, &g_sdl_renderer_rect, NULL);
+  nk_sdl_render(NK_ANTI_ALIASING_ON);
   SDL_RenderPresent(g_renderer); // vsyncs to 60 FPS?
 }
 
@@ -494,11 +535,9 @@ error_reading:;
     lua_update();
 
     //TODO Send inputs to lua
+    nk_input_begin(nk);
     while (SDL_PollEvent(&event)) {
-      if (!(event.type == SDL_MOUSEMOTION)) {
-        lua_send_sdl_pressed_key(event.key.keysym.sym);
-      }
-
+      nk_sdl_handle_event(&event);
       switch (event.type) {
       case SDL_CONTROLLERDEVICEADDED:
         OpenOneGamepad(event.cdevice.which);
@@ -538,9 +577,11 @@ error_reading:;
         }
         break;
       case SDL_KEYDOWN:
+        lua_handle_input(event.key.keysym.sym, true);
         HandleInput(event.key.keysym.sym, event.key.keysym.mod, true);
         break;
       case SDL_KEYUP:
+        lua_handle_input(event.key.keysym.sym, false);
         HandleInput(event.key.keysym.sym, event.key.keysym.mod, false);
         break;
       case SDL_QUIT:
@@ -548,6 +589,7 @@ error_reading:;
         break;
       }
     }
+    nk_input_end(nk);
 
     if (g_paused != audiopaused) {
       audiopaused = g_paused;

@@ -14,7 +14,6 @@
  #define DEBUG_PRINT(fmt, args...) /* Don't do anything in release builds */
 #endif
 
-
 void smw_lua_init();
 int lua_game_reset();
 int lua_scripts_reload();
@@ -25,9 +24,13 @@ bool lua_on_player_damage();
 void lua_on_player_death();
 void lua_on_player_respawn();
 bool lua_on_player_powerup(int powerup);
-void lua_send_sdl_pressed_key(uint32_t key);
+void lua_handle_input(uint32_t key, bool pressed);
 void smw_lua_set_variables();
 
+void lua_nuklear_draw();
+
 int lua_load_script(lua_State *L);
+
+extern struct nk_context *nk;
 
 #endif
