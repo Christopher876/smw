@@ -20,14 +20,14 @@ endif
 
 all: $(TARGET_EXEC) smw_assets.dat
 $(TARGET_EXEC): $(OBJS) $(RES)
-	$(CC) $(DEBUG) $^ -o $@ $(LDFLAGS) $(SDLFLAGS)
+	$(CC) -g $^ -o $@ $(LDFLAGS) $(SDLFLAGS)
 
 # debug: CFLAGS += -DDEBUG=1
 debug: all
 
 
 %.o : %.c
-	$(CC) -c $(CFLAGS) $< -o $@
+	$(CC) -g -c $(CFLAGS) $< -o $@
 
 #$(RES): src/platform/win32/smw.rc
 #	@echo "Generating Windows resources"

@@ -37,49 +37,37 @@ sds scripts_on_level_start[1];
 
 bool lua_key_pressed[NUM_KEYS];
 
-static void dumpstack (lua_State *L) {
-  int top=lua_gettop(L);
-  for (int i=1; i <= top; i++) {
-    printf("%d\t%s\t", i, luaL_typename(L,i));
-    switch (lua_type(L, i)) {
-      case LUA_TNUMBER:
-        printf("%g\n",lua_tonumber(L,i));
-        break;
-      case LUA_TSTRING:
-        printf("%s\n",lua_tostring(L,i));
-        break;
-      case LUA_TBOOLEAN:
-        printf("%s\n", (lua_toboolean(L, i) ? "true" : "false"));
-        break;
-      case LUA_TNIL:
-        printf("%s\n", "nil");
-        break;
-      default:
-        printf("%p\n",lua_topointer(L,i));
-        break;
+uint lua_stack_size = 0;
+
+static int dumpstack (lua_State *L) {
+    printf("Dumping Stack...\n");
+    int top=lua_gettop(L);
+    for (int i=1; i <= top; i++) {
+        printf("%d\t%s\t", i, luaL_typename(L,i));
+        switch (lua_type(L, i)) {
+        case LUA_TNUMBER:
+            printf("%g\n",lua_tonumber(L,i));
+            break;
+        case LUA_TSTRING:
+            printf("%s\n",lua_tostring(L,i));
+            break;
+        case LUA_TBOOLEAN:
+            printf("%s\n", (lua_toboolean(L, i) ? "true" : "false"));
+            break;
+        case LUA_TNIL:
+            printf("%s\n", "nil");
+            break;
+        default:
+            printf("%p\n",lua_topointer(L,i));
+            break;
+        }
     }
-  }
+    return 0;
 }
 
-enum {EASY, HARD};
-static int op = EASY;
-static float value = 0.6f;
-static int i =  20;
-
-int Nuklear_SdlRenderer_Draw(lua_State *L) {
-  if (nk_begin(nk, "Show", nk_rect(5, 0, 110, 110),
-    NK_WINDOW_BORDER|NK_WINDOW_MOVABLE|NK_WINDOW_CLOSABLE|NK_WINDOW_SCALABLE | NK_WINDOW_NO_SCROLLBAR)) {
-    nk_layout_row_begin(nk, NK_STATIC, 30, 2);
-    {
-        nk_layout_row_push(nk, 40);
-        nk_label(nk, "Mario Power Up:", NK_TEXT_LEFT);
-        nk_layout_row_push(nk, 40);
-        nk_label(nk, "255", NK_TEXT_LEFT);
-    }
-    nk_layout_row_end(nk);
-  }
-  nk_end(nk);
-  return 0;
+static int getStackCount(lua_State *L) {
+    lua_pushinteger(L, (lua_Integer) lua_stack_size);
+    return 1;
 }
 
 // SDL Functions
@@ -259,7 +247,7 @@ void lua_handle_input(uint32_t key, bool pressed) {
         return;
     lua_key_pressed[key] = pressed;
     
-    // Update the pressed SDL key
+// Update the pressed SDL key
     if (!pressed) {
         lua_getglobal(L, "sdl");
         lua_pushinteger(L, (lua_Integer)0);
@@ -269,6 +257,7 @@ void lua_handle_input(uint32_t key, bool pressed) {
         lua_pushinteger(L, (lua_Integer)key);
         lua_setfield(L, -2, "pressed_key");
     }
+    lua_pop(L, 1);
 }
 
 void lua_nuklear_draw() {
@@ -276,7 +265,7 @@ void lua_nuklear_draw() {
     if (!lua_isfunction(L, -1))
         return;
 
-    if (lua_pcall(L, 0, 1, 0)) {
+    if (lua_pcall(L, 0, 0, 0)) {
         fprintf(stderr, "Error calling function: %s\n", lua_tostring(L, -1));
         lua_close(L);
         return;
@@ -290,6 +279,7 @@ void lua_update_player_pos() {
     lua_setfield(L, -2, "x");
     lua_pushinteger(L, (lua_Integer)player_on_screen_pos_y);
     lua_setfield(L, -2, "y");
+    lua_pop(L, 1);
 }
 
 int lua_load_level(lua_State *L) {
@@ -443,8 +433,6 @@ void smw_lua_set_variables() {
 
     // Nuklear
     lua_newtable(L);
-    lua_pushcfunction(L, Nuklear_SdlRenderer_Draw);
-    lua_setfield(L, -2, "nuklear_demo");
 
     lua_pushcfunction(L, lua_nk_begin);
     lua_setfield(L, -2, "nk_begin");
@@ -465,6 +453,16 @@ void smw_lua_set_variables() {
     lua_setfield(L, -2, "nk_label");
 
     lua_setglobal(L, "nk");
+
+    // Debug
+    lua_newtable(L);
+    lua_pushcfunction(L, dumpstack);
+    lua_setfield(L, -2, "dumpstack");
+
+    lua_pushcfunction(L, getStackCount);
+    lua_setfield(L, -2, "getStackCount");
+
+    lua_setglobal(L, "debug");
 }
 
 void lua_init() {
@@ -472,7 +470,7 @@ void lua_init() {
     if (!lua_isfunction(L, -1))
         return;
 
-    if (lua_pcall(L, 0, 1, 0)) {
+    if (lua_pcall(L, 0, 0, 0)) {
         fprintf(stderr, "Error calling function: %s\n", lua_tostring(L, -1));
         lua_close(L);
         return;
@@ -508,6 +506,7 @@ int lua_load_script(lua_State *L) {
     if (!lua_isfunction(L, -1))
         return 1;
     scripts_with_update[2] = sdsnew("utils");
+    lua_pop(L, 1);
 
     return 0;
 }
@@ -517,16 +516,18 @@ void lua_update() {
     lua_update_player_pos();
 
     // Scripts Update
+    lua_stack_size = lua_gettop(L);
     for(int i = 0; i < sizeof(scripts_with_update) / sizeof(scripts_with_update[0]); i++) {
         lua_getglobal(L, scripts_with_update[i]);
         lua_getfield(L, -1, "update");
         if (!lua_isfunction(L, -1))
             continue;
-        if (lua_pcall(L, 0, 1, 0)) {
+        if (lua_pcall(L, 0, 0, 0)) {
             fprintf(stderr, "Error calling function: %s\n", lua_tostring(L, -1));
             lua_close(L);
             return;
         }
+        lua_pop(L, 1);
     }
 }
 
@@ -542,11 +543,12 @@ void lua_on_level_start(uint8 level) {
         lua_pushinteger(L, (lua_Integer)level);
 
         DEBUG_PRINT("Calling on_level_start: %d\n", level);
-        if (lua_pcall(L, 2, 1, 0)) {
+        if (lua_pcall(L, 2, 0, 0)) {
             fprintf(stderr, "Error calling function: %s\n", lua_tostring(L, -1));
             lua_close(L);
             return;
         }
+        lua_pop(L, 1);
     }
 }
 
@@ -555,17 +557,24 @@ bool lua_on_player_damage() {
     for (int i = 0; i < sizeof(scripts_on_player_damage) / sizeof(scripts_on_player_damage[0]); i++) {
         lua_getglobal(L, scripts_on_player_damage[i]);
         lua_getfield(L, -1, "on_player_damage");
-        if (!lua_isfunction(L, -1))
+        if (!lua_isfunction(L, -1)) {
+            lua_pop(L, 1);
+            lua_pop(L, 1);
             continue;
+        }
 
         if (lua_pcall(L, 0, 1, 0))
             return ret;
 
-        if (lua_isnoneornil(L, -1)) {} 
-        else if (lua_isboolean(L, -1)) {
+        if (lua_isboolean(L, -1)) {
             ret = lua_toboolean(L, -1);
         }
+
+        // Pop global and function
+        lua_pop(L, 1);
+        lua_pop(L, 1);
     }
+
     return ret;
 }
 
@@ -573,14 +582,18 @@ void lua_on_misc_1up() {
     for (int i = 0; i < sizeof(scripts_on_misc_1up) / sizeof(scripts_on_misc_1up[0]); i++) {
         lua_getglobal(L, scripts_on_misc_1up[i]);
         lua_getfield(L, -1, "on_misc_1up");
-        if (!lua_isfunction(L, -1))
+        if (!lua_isfunction(L, -1)) {
+            lua_pop(L, 1);
+            lua_pop(L, 1);
             continue;
+        }
 
-        if (lua_pcall(L, 0, 1, 0)) {
+        if (lua_pcall(L, 0, 0, 0)) {
             fprintf(stderr, "Error calling function: %s\n", lua_tostring(L, -1));
             lua_close(L);
             return;
         }
+        lua_pop(L, 1);
     }
 }
 
@@ -589,8 +602,11 @@ bool lua_on_player_powerup(int powerup) {
     for (int i = 0; i < sizeof(scripts_on_player_powerup) / sizeof(scripts_on_player_powerup[0]); i++) {
         lua_getglobal(L, scripts_on_player_powerup[i]);
         lua_getfield(L, -1, "on_player_powerup");
-        if (!lua_isfunction(L, -1))
+        if (!lua_isfunction(L, -1)) {
+            lua_pop(L, 1);
+            lua_pop(L, 1);
             continue;
+        }
 
         lua_pushvalue(L, -2);
         lua_pushinteger(L, (lua_Integer)powerup);
@@ -598,11 +614,12 @@ bool lua_on_player_powerup(int powerup) {
         DEBUG_PRINT("Calling on_player_powerup: %d\n", powerup);
         if (lua_pcall(L, 2, 1, 0)) {
             return ret;
-        }
-        if (lua_isnoneornil(L, -1)) {} 
-        else if (lua_isboolean(L, -1)) {
+        } 
+        if (lua_isboolean(L, -1)) {
             ret = lua_toboolean(L, -1);
         }
+        lua_pop(L, 1);
+        lua_pop(L, 1);
     }
     return ret;
 }
@@ -611,14 +628,18 @@ void lua_on_player_death() {
     for (int i = 0; i < sizeof(scripts_on_player_death) / sizeof(scripts_on_player_death[0]); i++) {
         lua_getglobal(L, scripts_on_player_death[i]);
         lua_getfield(L, -1, "on_player_death");
-        if (!lua_isfunction(L, -1))
+        if (!lua_isfunction(L, -1)) {
+            lua_pop(L, 1);
+            lua_pop(L, 1);
             continue;
+        }
 
-        if (lua_pcall(L, 0, 1, 0)) {
+        if (lua_pcall(L, 0, 0, 0)) {
             fprintf(stderr, "Error calling function: %s\n", lua_tostring(L, -1));
             lua_close(L);
             return;
         }
+        lua_pop(L, 1);
     }
 }
 
@@ -626,13 +647,17 @@ void lua_on_player_respawn() {
     for(int i = 0; i < sizeof(scripts_on_player_respawn) / sizeof(scripts_on_player_respawn[0]); i++) {
         lua_getglobal(L, scripts_on_player_respawn[i]);
         lua_getfield(L, -1, "on_player_respawn");
-        if (!lua_isfunction(L, -1))
+        if (!lua_isfunction(L, -1)) {
+            lua_pop(L, 1);
+            lua_pop(L, 1);
             continue;
-        if (lua_pcall(L, 0, 1, 0)) {
+        }
+        if (lua_pcall(L, 0, 0, 0)) {
             fprintf(stderr, "Error calling function: %s\n", lua_tostring(L, -1));
             lua_close(L);
             return;
         }
+        lua_pop(L, 1);
     }
 }
 
